@@ -1,0 +1,9 @@
+[vms]
+
+[vms.debVM]
+name = "Debian x86_64"
+image = "/var/autobuild/build-farm/debian-stable-amd64/image.qcow"
+ram = 4096
+cpus = 4
+username = "debian"
+password = "debianpassword"

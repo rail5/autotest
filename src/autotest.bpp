@@ -1,0 +1,65 @@
+@include_once <TypedArray>
+@include_once "components/VM.bpp"
+
+# Read config from config.toml
+configFile="config.toml"
+if [[ ! -f "$configFile" ]]; then
+	>&2 echo "Error: Configuration file '$configFile' not found!"
+	exit 1
+fi
+# We can use toml2json + jq to parse the config file and extract VM configurations
+configJSON=@(toml2json "$configFile")
+if [[ $? -ne 0 ]]; then
+	>&2 echo "Error: Failed to parse configuration file '$configFile'."
+	exit 1
+fi
+
+@TypedArray VMs
+@VMs.set_type "VM"
+
+# For each JSON object in the "vms" section, create a VM instance
+for vmName in @(echo "$configJSON" | jq -r '.vms | keys[]'); do
+	vmConfig=@(echo "$configJSON" | jq -r ".vms[\"$vmName\"]")
+	@VM* instance=@new VM
+	@instance.name=@(echo "$vmConfig" | jq -r '.name')
+	@instance.imagePath=@(echo "$vmConfig" | jq -r '.image')
+	@instance.ramSize=@(echo "$vmConfig" | jq -r '.ram')
+	@instance.cpuCount=@(echo "$vmConfig" | jq -r '.cpus')
+	@instance.username=@(echo "$vmConfig" | jq -r '.username')
+	@instance.password=@(echo "$vmConfig" | jq -r '.password')
+	@VMs.push @instance
+done
+
+if @VMs.empty; then
+	>&2 echo "Error: No VM configurations found in '$configFile'."
+	exit 1
+fi
+
+# Just for demonstration:
+@VM* debx86=@VMs.front
+
+echo "Booting up @{debx86.name}"
+
+qemuPID=@(@debx86.boot)
+
+until [[ "@debx86.viewSSHPort" -gt 0 ]]; do
+	>&2 echo "Waiting for VM to start and assign an SSH port..."
+	>&2 echo "Current SSH port: @debx86.viewSSHPort"
+	sleep 1
+done
+
+# Now wait until there's actually something running on that port
+until nc -z localhost "@debx86.viewSSHPort" &>/dev/null; do
+	>&2 echo "Waiting for SSH to be available on port @debx86.viewSSHPort..."
+	sleep 1
+done
+
+cat <<EOF | @debx86.write
+echo "Hello from inside the VM!"
+echo "This is a sequence of commands being executed inside the VM."
+ping -c 3 rail5.org
+echo "All commands executed. Exiting."
+EOF
+
+
+kill $qemuPID

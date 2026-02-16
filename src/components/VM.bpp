@@ -1,0 +1,89 @@
+function get_random_free_port() {
+	local RANDOM_PORT
+	while : ; do
+		RANDOM_PORT=@(expr @(expr $RANDOM % 16372) + 49152)
+		netstat -ant | awk '{print $4}' | grep ":$RANDOM_PORT$" &>/dev/null || break
+	done
+
+	echo $RANDOM_PORT
+}
+
+# A single QEMU virtual machine on which we run tests
+# We assume it's already set up & ready to boot on demand
+# Another assumption: only one instance of each VM object is running at a time
+@class VM {
+	@public name="VM"
+	@public imagePath
+	@public ramSize=4096
+	@public cpuCount=4
+	@public username="root"
+	@public password="password"
+
+	@private sshPort=0
+
+	@public @method viewSSHPort {
+		echo "@this.sshPort"
+	}
+
+	@private @method log message {
+		# Message is either in $message/$1 or in stdin
+		if [[ -n "$message" ]]; then
+			# It's in the argument
+			>&2 echo "[@{this.name}] $message"
+			return
+		fi
+
+		# It's in stdin
+		while IFS= read -r line; do
+			>&2 echo "[@{this.name}] $line"
+		done
+	}
+
+	@public @method boot stateless {
+		if [[ ! -f "@this.imagePath" ]]; then
+			@this.log "Error: Image file '@{this.imagePath}' not found!"
+			return 1
+		fi
+
+		@this.log "Booting VM at @{this.imagePath}..."
+
+		local statelessFlag="-snapshot"
+
+		# Stateless mode is ENABLED unless EXPLICITLY set to "false"
+		if [[ "$stateless" != "false" ]]; then
+			@this.log "Stateless mode enabled: VM will not save any changes to the disk image."
+		else
+			@this.log "Persistent mode enabled: VM will save changes to the disk image."
+			statelessFlag=""
+		fi
+
+		@this.sshPort=@(get_random_free_port)
+		@this.log "Using SSH port @this.sshPort."
+
+		qemu-system-x86_64 \
+			-m @this.ramSize \
+			-accel kvm \
+			-smp @this.cpuCount \
+			-net user,hostfwd=tcp::@{this.sshPort}-:22 \
+			-net nic \
+			-hda @this.imagePath \
+			-nographic ${statelessFlag} &>/dev/null &
+		
+		echo $!  # Return the PID of the QEMU process
+	}
+
+	@public @method write {
+		# Forward stdin to SSH
+		# Using sshpass to provide the password non-interactively
+		# I.e.,
+		#    echo "command-name" | @VM.write
+		# Should run "command-name" in the VM over SSH
+		# Responses are then written out back via @this.log
+		sshpass -p"@this.password" ssh -T \
+			-o StrictHostKeyChecking=no \
+			-o UserKnownHostsFile=/dev/null \
+			-o LogLevel=ERROR \
+			-p @this.sshPort @this.username\@localhost \
+			"bash -s" <&0 2>&1 | @this.log
+	}
+}
