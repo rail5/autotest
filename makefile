@@ -1,10 +1,14 @@
-all: autotest
+BPP ?= bpp
+BPPFLAGS ?= --target-bash 5.2
+TARGET ?= autotest
+
+all: $(TARGET)
 	@:
 
-autotest: src/autotest.bpp src/components/VM.bpp
-	bpp -o $@ $<
+$(TARGET): src/autotest.bpp src/components/VM.bpp
+	$(BPP) $(BPPFLAGS) -o $@ $<
 
 clean:
-	rm -f autotest
+	rm -f $(TARGET)
 
 .PHONY: all clean

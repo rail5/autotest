@@ -1,0 +1,56 @@
+@include_once <Array>
+@include_once "VM.bpp"
+
+@class VMList {
+	@private @Array vmNames
+	@private @Array vmPointers
+
+	@public @method addVM @VM* vm {
+		if [[ @vm == @nullptr ]]; then
+			return 1
+		fi
+		# TODO: We're using two arrays to compensate for the fact that
+		# Bash++ does not yet fully support parameter expansion/substitution in
+		# non-primitive references (i.e., references beginning with @)
+		# Once that is supported, we can directly declare a data member to be
+		# an associative array mapping VM names to VM pointers, and we won't need to maintain
+		# two separate arrays in parallel
+
+		# Verify that the VM name is unique
+		for existingName in @this.vmNames; do
+			if [[ "$existingName" == "@vm.name" ]]; then
+				>&2 echo "Error: VM with name '@vm.name' already exists in VMList!"
+				return 1
+			fi
+		done
+
+		@this.vmNames.push "@vm.name"
+		@this.vmPointers.push @vm
+	}
+
+	@private @method getArrayIndexByName name {
+		for i in @(seq 0 $((@this.vmNames.size - 1))); do
+			if [[ @(@this.vmNames.at "$i") == "$name" ]]; then
+				echo "$i"
+				return 0
+			fi
+		done
+	}
+
+	@public @method getVMByName name {
+		local index=@(@this.getArrayIndexByName "$name")
+		if [[ -z "$index" ]]; then
+			echo @nullptr
+			return 1
+		fi
+		@this.vmPointers.at "$index"
+	}
+
+	@public @method empty {
+		if [[ @this.vmNames.size -eq 0 ]]; then
+			return 0
+		else
+			return 1
+		fi
+	}
+}

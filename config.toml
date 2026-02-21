@@ -1,9 +1,33 @@
+# VIRTUAL MACHINES
 [vms]
 
 [vms.debVM]
-name = "Debian x86_64"
+# The (absolute) path to the VM image file (qcow2 format)
 image = "/var/autobuild/build-farm/debian-stable-amd64/image.qcow"
 ram = 4096
 cpus = 4
+# Credentials for logging into the VM
 username = "debian"
 password = "debianpassword"
+
+[vms.otherVM]
+image = "/path/to/other/image.qcow"
+ram = 2048
+cpus = 2
+username = "user"
+password = "password"
+
+# PACKAGES
+[packages]
+
+[packages.xgetopt]
+authoritativeSource = "https://github.com/rail5/xgetopt"
+# The command to run inside the VM to test this package
+# It will be run from the package source root
+# Its output (and exit status) will be captured and returned as the test results per VM
+testCommand = "cd tests && make run"
+# The VMs to run this package on (must be defined in the [vms] section)
+testVMs = [
+	"debVM",
+	"otherVM"
+]

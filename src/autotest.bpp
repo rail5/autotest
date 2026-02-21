@@ -1,65 +1,73 @@
-@include_once <TypedArray>
-@include_once "components/VM.bpp"
+function displayHelp() {
+	echo "Usage: autotest [options] package"
+	echo ""
+	echo "Options:"
+	echo "  -h, --help    Display this help message and exit"
+	echo "  -s, --source  Provide a local path to the package source code"
+	echo "                (overrides authoritativeSource in config.toml)"
+	echo ""
+	echo "Arguments:"
+	echo "  package       The name of the package to test (must match a package"
+	echo "                defined in config.toml)"
+}
 
-# Read config from config.toml
-configFile="config.toml"
-if [[ ! -f "$configFile" ]]; then
-	>&2 echo "Error: Configuration file '$configFile' not found!"
-	exit 1
-fi
-# We can use toml2json + jq to parse the config file and extract VM configurations
-configJSON=@(toml2json "$configFile")
+# getopt
+parsed=$(getopt -o hs: --long help,source: -- "$@")
 if [[ $? -ne 0 ]]; then
-	>&2 echo "Error: Failed to parse configuration file '$configFile'."
+	>&2 displayHelp
+	exit 1
+fi
+eval set -- "$parsed"
+
+sourcePath=""
+while true; do
+	case "$1" in
+		-h|--help)
+			displayHelp
+			exit 0
+			;;
+		-s|--source)
+			if [[ -n "$sourcePath" ]]; then
+				>&2 echo "Error: Multiple source paths provided. Please provide only one."
+				exit 1
+			fi
+			if [[ ! -d "$2" ]]; then
+				>&2 echo "Error: Source path '$2' does not exist or is not a directory."
+				exit 1
+			fi
+			sourcePath="$2"
+			shift 2
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			>&2 echo "Error: Invalid option '$1'."
+			exit 1
+			;;
+	esac
+done
+
+if [[ $# -ne 1 ]]; then
+	>&2 echo "Error: Expected exactly one package name argument, got $#."
+	displayHelp
 	exit 1
 fi
 
-@TypedArray VMs
-@VMs.set_type "VM"
+@include "readConfig.bpp"
 
-# For each JSON object in the "vms" section, create a VM instance
-for vmName in @(echo "$configJSON" | jq -r '.vms | keys[]'); do
-	vmConfig=@(echo "$configJSON" | jq -r ".vms[\"$vmName\"]")
-	@VM* instance=@new VM
-	@instance.name=@(echo "$vmConfig" | jq -r '.name')
-	@instance.imagePath=@(echo "$vmConfig" | jq -r '.image')
-	@instance.ramSize=@(echo "$vmConfig" | jq -r '.ram')
-	@instance.cpuCount=@(echo "$vmConfig" | jq -r '.cpus')
-	@instance.username=@(echo "$vmConfig" | jq -r '.username')
-	@instance.password=@(echo "$vmConfig" | jq -r '.password')
-	@VMs.push @instance
-done
-
-if @VMs.empty; then
-	>&2 echo "Error: No VM configurations found in '$configFile'."
+packageName="$1"
+@Package* package=@(@packages.getPackageByName "$packageName")
+if [[ @package == @nullptr ]]; then
+	>&2 echo "Error: Package '$packageName' not found in configuration."
 	exit 1
 fi
 
-# Just for demonstration:
-@VM* debx86=@VMs.front
+# If a local source was provided, override the authoritativeSource in the package configuration
+if [[ -n "$sourcePath" ]]; then
+	@package.provideLocalSource "$sourcePath"
+fi
 
-echo "Booting up @{debx86.name}"
-
-qemuPID=@(@debx86.boot)
-
-until [[ "@debx86.viewSSHPort" -gt 0 ]]; do
-	>&2 echo "Waiting for VM to start and assign an SSH port..."
-	>&2 echo "Current SSH port: @debx86.viewSSHPort"
-	sleep 1
-done
-
-# Now wait until there's actually something running on that port
-until nc -z localhost "@debx86.viewSSHPort" &>/dev/null; do
-	>&2 echo "Waiting for SSH to be available on port @debx86.viewSSHPort..."
-	sleep 1
-done
-
-cat <<EOF | @debx86.write
-echo "Hello from inside the VM!"
-echo "This is a sequence of commands being executed inside the VM."
-ping -c 3 rail5.org
-echo "All commands executed. Exiting."
-EOF
-
-
-kill $qemuPID
+echo "Starting tests for package '$packageName'..."
+@package.test

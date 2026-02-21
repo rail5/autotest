@@ -1,0 +1,50 @@
+@include_once <Array>
+@include_once "Package.bpp"
+
+@class PackageList {
+	@private @Array packageNames
+	@private @Array packagePointers
+
+	@public @method addPackage @Package* package {
+		if [[ @package == @nullptr ]]; then
+			return 1
+		fi
+
+		# Verify that the package name is unique
+		for existingName in @this.packageNames; do
+			if [[ "$existingName" == "@package.name" ]]; then
+				>&2 echo "Error: Package with name '@package.name' already exists in PackageList!"
+				return 1
+			fi
+		done
+
+		@this.packageNames.push "@package.name"
+		@this.packagePointers.push @package
+	}
+
+	@private @method getArrayIndexByName name {
+		for i in @(seq 0 $((@this.packageNames.size - 1))); do
+			if [[ @(@this.packageNames.at "$i") == "$name" ]]; then
+				echo "$i"
+				return 0
+			fi
+		done
+	}
+
+	@public @method getPackageByName name {
+		local index=@(@this.getArrayIndexByName "$name")
+		if [[ -z "$index" ]]; then
+			echo @nullptr
+			return 1
+		fi
+		@this.packagePointers.at "$index"
+	}
+
+	@public @method empty {
+		if [[ @this.packageNames.size -eq 0 ]]; then
+			return 0
+		else
+			return 1
+		fi
+	}
+}

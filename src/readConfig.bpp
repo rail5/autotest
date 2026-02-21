@@ -1,0 +1,59 @@
+@include_once "components/VM.bpp"
+@include_once "components/VMList.bpp"
+@include_once "components/Package.bpp"
+@include_once "components/PackageList.bpp"
+
+# Read config from config.toml
+configFile="config.toml"
+if [[ ! -f "$configFile" ]]; then
+	>&2 echo "Error: Configuration file '$configFile' not found!"
+	exit 1
+fi
+# We can use toml2json + jq to parse the config file and extract VM configurations
+configJSON=@(toml2json "$configFile")
+if [[ $? -ne 0 ]]; then
+	>&2 echo "Error: Failed to parse configuration file '$configFile'."
+	exit 1
+fi
+
+# Get configured VMs
+@VMList VMs
+
+# For each JSON object in the "vms" section, create a VM instance
+for vmName in @(echo "$configJSON" | jq -r '.vms | keys[]'); do
+	vmConfig=@(echo "$configJSON" | jq -r ".vms[\"$vmName\"]")
+	@VM* instance=@new VM
+	@instance.name="$vmName"
+	@instance.imagePath=@(echo "$vmConfig" | jq -r '.image')
+	@instance.ramSize=@(echo "$vmConfig" | jq -r '.ram')
+	@instance.cpuCount=@(echo "$vmConfig" | jq -r '.cpus')
+	@instance.username=@(echo "$vmConfig" | jq -r '.username')
+	@instance.password=@(echo "$vmConfig" | jq -r '.password')
+	@VMs.addVM @instance
+done
+
+if @VMs.empty; then
+	>&2 echo "Error: No VM configurations found in '$configFile'."
+	exit 1
+fi
+
+
+# Get configured packages
+@PackageList packages
+
+# For each JSON object in the "packages" section, create a Package instance
+for packageName in @(echo "$configJSON" | jq -r '.packages | keys[]'); do
+	packageConfig=@(echo "$configJSON" | jq -r ".packages[\"$packageName\"]")
+	@Package* instance=@new Package
+	@instance.name="$packageName"
+	@instance.authoritativeSource=@(echo "$packageConfig" | jq -r '.authoritativeSource')
+	@instance.testCommand=@(echo "$packageConfig" | jq -r '.testCommand')
+	for vmName in @(echo "$packageConfig" | jq -r '.testVMs[]'); do
+		@VM* vm=@(@VMs.getVMByName "$vmName")
+		if ! @instance.testVMs.push @vm; then
+			>&2 echo "Error: Failed to add VM '$vmName' to testVMs for package '$packageName'."
+			exit 1
+		fi
+	done
+	@packages.addPackage @instance
+done

@@ -19,6 +19,8 @@ function get_random_free_port() {
 	@public username="root"
 	@public password="password"
 
+	@private qemuPID=0
+
 	@private sshPort=0
 
 	@public @method viewSSHPort {
@@ -69,7 +71,48 @@ function get_random_free_port() {
 			-hda @this.imagePath \
 			-nographic ${statelessFlag} &>/dev/null &
 		
-		echo $!  # Return the PID of the QEMU process
+		@this.qemuPID=$!
+		echo @this.qemuPID # Return the PID of the QEMU process for later use (e.g., shutdown)
+	}
+
+	@public @method signalWhenBooted timeout {
+		local startTime=$(date +%s)
+		while : ; do
+			if [[ @this.sshPort -gt 0 ]]; then
+				# Now wait until there's actually something running on that port
+				until nc -z localhost @this.sshPort &>/dev/null; do
+					if [[ -n "$timeout" ]]; then
+						local currentTime=$(date +%s)
+						if [[ $((currentTime - startTime)) -ge timeout ]]; then
+							@this.log "Error: Timeout while waiting for SSH to become available on port @this.sshPort."
+							return 1
+						fi
+					fi
+					sleep 1
+				done
+				return 0 # VM is booted and SSH is available. Signal.
+			fi
+
+			if [[ -n "$timeout" ]]; then
+				local currentTime=$(date +%s)
+				if [[ $((currentTime - startTime)) -ge timeout ]]; then
+					@this.log "Error: Timeout while waiting for VM to boot."
+					return 1
+				fi
+			fi
+
+			sleep 1
+		done
+	}
+
+	@public @method sendFile localPath {
+		if [[ ! -f "$localPath" ]]; then
+			@this.log "Error: Local file '$localPath' not found!"
+			return 1
+		fi
+
+		sshpass -p"@this.password" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -P @this.sshPort "$localPath" @this.username\@localhost:~/
+		return $?
 	}
 
 	@public @method write {
@@ -85,5 +128,20 @@ function get_random_free_port() {
 			-o LogLevel=ERROR \
 			-p @this.sshPort @this.username\@localhost \
 			"bash -s" <&0 2>&1 | @this.log
+	}
+
+	@public @method shutdown {
+		# We cannot rely on commands such as "shutdown" being available inside the VM
+		if [[ @this.qemuPID -le 0 ]]; then
+			@this.log "VM not running; refusing to signal PID @this.qemuPID."
+			return 0
+		fi
+
+		kill -SIGTERM @this.qemuPID 2>/dev/null || {
+			@this.log "Error: Failed to send shutdown signal to VM process with PID @this.qemuPID."
+			return 1
+		}
+
+		@this.qemuPID=0
 	}
 }
