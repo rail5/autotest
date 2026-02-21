@@ -1,4 +1,4 @@
-@include_once <Array>
+@include_once dynamic <Array>
 @include_once "VM.bpp"
 
 @class VMList {

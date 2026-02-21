@@ -1,4 +1,4 @@
-@include_once <TypedArray>
+@include_once dynamic <TypedArray>
 @include_once "VM.bpp"
 
 @class Package {
