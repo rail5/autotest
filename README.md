@@ -7,7 +7,7 @@ I do not recommend that anyone use this:
 1. It's a WIP
 2. It's not being designed for public use
 
-I'm just designing this so that I can, e.g. before releasing a new version of some package I maintain, press a single button and get a report on cross-platform compatibility. In general my software only supports the GNU platform but portability is always desirable.
+I'm just designing this so that I can, e.g. before releasing a new version of some package I maintain, press a single button and get a report on cross-platform compatibility.
 
 ## Language
 
